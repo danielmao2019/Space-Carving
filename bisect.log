@@ -1,0 +1,9 @@
+git bisect start
+# status: waiting for both good and bad commits
+# good: [18d864a698db63b4ea4b975db851166b620a4c06] added e7 to aws
+git bisect good 18d864a698db63b4ea4b975db851166b620a4c06
+# status: waiting for bad commit, 1 good commit known
+# bad: [f1fc97b3cee5184ca2ec4f5c0056f3c50339a2b8] worked debugging e7 scene unclarity
+git bisect bad f1fc97b3cee5184ca2ec4f5c0056f3c50339a2b8
+# good: [224b46172d5da4d566e652f33041eb09abc9e7cc] worked on compression
+git bisect good 224b46172d5da4d566e652f33041eb09abc9e7cc

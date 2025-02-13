@@ -1,0 +1,5 @@
+*.ply
+*.splat
+*.cply
+*.ply
+node_modules/**
