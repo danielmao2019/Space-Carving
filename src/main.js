@@ -329,7 +329,10 @@ function removeOpacity(x, y) {
 
     // Step 4: Process boundary gaussians by approximating the outside part
     console.log("Step 4: Process boundary gaussians by approximating the outside part");
+
+    onsole.time("processBoundaryGaussians");
     processBoundaryGaussians(boundaryGaussians, intensityThreshold, removeCenter, removeRadius);
+    onsole.timeEnd("processBoundaryGaussians");
 
     // Update buffers and trigger render
     updateBuffer(positionBuffer, globalData.gaussians.positions);
