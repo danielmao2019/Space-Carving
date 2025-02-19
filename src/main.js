@@ -193,6 +193,7 @@ async function main() {
 }
 
 function handleInteractive(e) {
+    console.log("handleInteractive");
     if (e.altKey && e.ctrlKey) {
         moveUp(e.clientX, e.clientY);
     } else if (e.ctrlKey) {
@@ -307,6 +308,7 @@ function moveUp(x, y) {
 // }
 
 function removeOpacity(x, y) {
+    console.log("removeOpacity");
     const hit = cam.raycast(x, y);  // Get the clicked position in 3D space
     const removeCenter = hit.pos;
     const removeRadius = settings.selectionSize;
@@ -590,6 +592,7 @@ function processBoundaryGaussians(boundaryGaussians, intensityThreshold, removeC
 // ====================================================================================================
 
 function approximateGaussianOutsideCube(gaussian_idx, intensityThreshold, removeCenter, removeRadius) {
+    console.log("approximateGaussianOutsideCube");
     const resultEllipsoids = [];
 
     // Define the six planes of the cube
