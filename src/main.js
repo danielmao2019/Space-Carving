@@ -330,19 +330,20 @@ function removeOpacity(x, y) {
     // Step 4: Process boundary gaussians by approximating the outside part
     console.log("Step 4: Process boundary gaussians by approximating the outside part");
 
-    onsole.time("processBoundaryGaussians");
-    processBoundaryGaussians(boundaryGaussians, intensityThreshold, removeCenter, removeRadius);
-    onsole.timeEnd("processBoundaryGaussians");
+    console.time("processBoundaryGaussians");
+    processBoundaryGaussiansInParallel(boundaryGaussians, intensityThreshold, removeCenter, removeRadius);
+    // processBoundaryGaussians(boundaryGaussians, intensityThreshold, removeCenter, removeRadius);
+    console.timeEnd("processBoundaryGaussians");
 
-    // Update buffers and trigger render
-    updateBuffer(positionBuffer, globalData.gaussians.positions);
-    updateBuffer(colorBuffer, globalData.gaussians.colors);
-    updateBuffer(opacityBuffer, globalData.gaussians.opacities);
+    // // Update buffers and trigger render
+    // updateBuffer(positionBuffer, globalData.gaussians.positions);
+    // updateBuffer(colorBuffer, globalData.gaussians.colors);
+    // updateBuffer(opacityBuffer, globalData.gaussians.opacities);
 
-    requestRender();
-    cam.needsWorkerUpdate = true;
-    worker.postMessage(globalData);
-    cam.updateWorker();
+    // requestRender();
+    // cam.needsWorkerUpdate = true;
+    // worker.postMessage(globalData);
+    // cam.updateWorker();
 }
 
 // ====================================================================================================
@@ -588,6 +589,123 @@ function processBoundaryGaussians(boundaryGaussians, intensityThreshold, removeC
             }
         });
     });
+}
+
+function processBoundaryGaussiansInParallel(boundaryGaussians, intensityThreshold, removeCenter, removeRadius) {
+    const numWorkers = 7; // or 2, 8, whatever you like
+    const workers = [];
+    let completed = 0;
+    const allNewEllipsoids = [];
+
+    // Split boundaryGaussians into `numWorkers` chunks:
+    const chunkSize = Math.ceil(boundaryGaussians.length / numWorkers);
+
+    for (let w = 0; w < numWorkers; w++) {
+        // 1) Create the worker
+        const worker = new Worker('src/boundary-worker.js');
+        // console.log('Created boundary-worker:', worker);
+        workers.push(worker);
+
+
+        // Listen for errors
+        worker.addEventListener("error", (e) => {
+            console.error("Boundary Worker Error:", e.message, e.lineno, e.colno, e.error);
+        });
+
+        // 2) Slice the portion of array for this worker
+        i_start = w * chunkSize;
+        i_end = Math.min((w + 1) * chunkSize, boundaryGaussians.length);
+
+        ids = boundaryGaussians.slice(i_start, i_end),
+
+            boundary_guassian_objects = []
+
+        ids.forEach(id => {
+            const i = id.id;
+            g = {
+                id: i,
+                position: globalData.gaussians.positions.slice(i * 3, i * 3 + 3),
+                cov3Da: globalData.gaussians.cov3Da.slice(i * 3, i * 3 + 3),
+                cov3Db: globalData.gaussians.cov3Db.slice(i * 3, i * 3 + 3),
+                color: globalData.gaussians.colors.slice(i * 3, i * 3 + 3),
+                opacity: globalData.gaussians.opacities[i]
+            }
+            boundary_guassian_objects.push(g);
+        });
+
+        // 3) When the worker finishes:
+        worker.onmessage = function (event) {
+
+            if (event.data?.type === "worker-error") {
+                console.error("Worker error message:", event.data.message);
+                console.error("Source file:", event.data.source);
+                console.error("Line number:", event.data.lineno);
+                console.error("Column number:", event.data.colno);
+                console.error("Stack:", event.data.stack);
+                return;
+            }
+
+            console.log('Received message from boundary-worker:', event.data);
+            // event.data contains { newEllipsoids } from the worker
+            const { newEllipsoids } = event.data;
+            // Merge these into the array
+            allNewEllipsoids.push(newEllipsoids);
+
+            // Keep track that this worker is done
+            completed++;
+            // If all workers are done, combine final results
+            if (completed === numWorkers) {
+                // Now we have all new ellipsoids from all chunks
+                console.log('All workers done. total new ellipsoids =', allNewEllipsoids.length);
+
+                // Here you can do the logic to update globalData with the new ellipsoids
+                // e.g. update typed arrays, re-upload to GPU buffers, etc.
+                finalizeNewEllipsoids(allNewEllipsoids, boundaryGaussians);
+            }
+        };
+
+        // 4) Send chunk and parameters to the worker
+        // console.log('Posting following chunk to boundary-worker:', chunk);
+        worker.postMessage({
+            boundaryGaussians: boundary_guassian_objects,
+            intensityThreshold,
+            removeCenter,
+            removeRadius
+        });
+    }
+}
+
+function finalizeNewEllipsoids(newEllipsoids, boundaryGaussians) {
+
+    // Add the new gaussians to the global data
+    newEllipsoids.forEach(newGaussian => {
+        if (newGaussian) {
+            // Concatenate new data for positions, cov3Da, cov3Db, and colors
+            globalData.gaussians.positions = concatTypedArrays(globalData.gaussians.positions, new Float32Array(newGaussian.positions));
+            globalData.gaussians.cov3Da = concatTypedArrays(globalData.gaussians.cov3Da, new Float32Array(newGaussian.cov3Da));
+            globalData.gaussians.cov3Db = concatTypedArrays(globalData.gaussians.cov3Db, new Float32Array(newGaussian.cov3Db));
+            globalData.gaussians.colors = concatTypedArrays(globalData.gaussians.colors, new Float32Array(newGaussian.colors));
+            globalData.gaussians.opacities = concatTypedArrays(globalData.gaussians.opacities, new Float32Array([newGaussian.opacities]));
+        }
+    });
+
+    // make invisible the old gaussians. 
+    boundaryGaussians.forEach(gaussian_idx => {
+        const i = gaussian_idx.id;
+        // Make the old gaussian invisible
+        globalData.gaussians.opacities[i] = 0;
+    });
+
+    // Update buffers and trigger render
+    updateBuffer(positionBuffer, globalData.gaussians.positions);
+    updateBuffer(colorBuffer, globalData.gaussians.colors);
+    updateBuffer(opacityBuffer, globalData.gaussians.opacities);
+
+    requestRender();
+    cam.needsWorkerUpdate = true;
+    worker.postMessage(globalData);
+    cam.updateWorker();
+    console.log("Done Deleting Gaussisnas");
 }
 
 // ====================================================================================================
